@@ -1,0 +1,365 @@
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ensureAnonymousSession, supabase } from '../lib/supabase';
+type Question = {
+  id: string;
+  text: string;
+  category_id: string | null;
+};
+
+const categoryNames: Record<string, string> = {
+  all: '✨ All Categories',
+  awkward: '😬 Awkward',
+  crushes: '💔 Crushes & Relationships',
+  secrets: '🤐 Secrets',
+  overthinking: '🧠 Overthinking',
+  regret: '😔 Regret',
+  family: '👨‍👩‍👧 Family',
+  money: '💸 Money',
+  habits: '📱 Habits',
+  'social-life': '🧍 Social Life',
+  identity: '🧬 Identity',
+};
+
+const categoryIdToSlug: Record<string, string> = {
+  // we'll fill this later if needed
+};
+
+export default function QuestionScreen() {
+  const { category } = useLocalSearchParams<{ category?: string }>();
+  const selectedCategory = category ?? 'all';
+
+  const [question, setQuestion] = useState<Question | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadRandomQuestion();
+  }, [selectedCategory]);
+
+  async function loadRandomQuestion() {
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('questions')
+        .select('id, text, category_id')
+        .eq('is_active', true);
+
+      if (error) {
+        console.log('Question load error:', error.message);
+        setQuestion(null);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setQuestion(null);
+        return;
+      }
+
+      let filtered = data;
+
+      if (selectedCategory !== 'all') {
+        const { data: catRow, error: catError } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('slug', selectedCategory)
+          .maybeSingle();
+
+        if (catError) {
+          console.log('Category lookup error:', catError.message);
+        }
+
+        if (catRow?.id) {
+          filtered = data.filter((q) => q.category_id === catRow.id);
+        } else {
+          filtered = [];
+        }
+      }
+
+      if (!filtered || filtered.length === 0) {
+        setQuestion(null);
+        return;
+      }
+
+      const randomItem = filtered[Math.floor(Math.random() * filtered.length)];
+      setQuestion(randomItem);
+    } catch (err) {
+      console.log('Unexpected question load error:', err);
+      setQuestion(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#ffffff" />
+      </View>
+    );
+  }
+
+  if (!question) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.emptyText}>No active questions found.</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.push('/categories')}>
+          <Text style={styles.backButtonText}>Choose another category</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.glowTop} />
+
+      <View style={styles.topRow}>
+        <Text style={styles.streak}>🔥 3 in a row</Text>
+
+        <TouchableOpacity
+  style={styles.iconButton}
+  onPress={() => router.push('/create')}
+>
+  <Text style={styles.iconButtonText}>＋</Text>
+</TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={styles.categoryPill}
+        onPress={() => router.push('/categories')}
+      >
+        <Text style={styles.categoryText}>
+          {categoryNames[selectedCategory] ?? '✨ All Categories'}
+        </Text>
+      </TouchableOpacity>
+
+      <View style={styles.card}>
+        <Text style={styles.questionText}>{question.text}</Text>
+      </View>
+
+<View style={styles.buttonRow}>
+  <TouchableOpacity
+    style={styles.yesButton}
+onPress={async () => {
+  const session = await ensureAnonymousSession();
+
+  if (!session?.user) {
+    Alert.alert('User error', 'Could not create your session.');
+    return;
+  }
+
+  const { error } = await supabase.from('responses').insert({
+    user_id: session.user.id,
+    question_id: question.id,
+    answer: true,
+  });
+
+  if (error) {
+    Alert.alert('Insert YES error', error.message);
+    return;
+  }
+
+  router.push({
+    pathname: '/result',
+    params: {
+      questionId: question.id,
+      questionText: question.text,
+      answer: 'yes',
+    },
+  });
+}}
+  >
+    <Text style={styles.yesButtonText}>Yes</Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={styles.noButton}
+ onPress={async () => {
+  const session = await ensureAnonymousSession();
+
+  if (!session?.user) {
+    Alert.alert('User error', 'Could not create your session.');
+    return;
+  }
+
+  const { error } = await supabase.from('responses').insert({
+    user_id: session.user.id,
+    question_id: question.id,
+    answer: false,
+  });
+
+  if (error) {
+    Alert.alert('Insert NO error', error.message);
+    return;
+  }
+
+  router.push({
+    pathname: '/result',
+    params: {
+      questionId: question.id,
+      questionText: question.text,
+      answer: 'no',
+    },
+  });
+}}
+  >
+    <Text style={styles.noButtonText}>No</Text>
+  </TouchableOpacity>
+</View>
+
+      <View style={styles.bottomRow}>
+        <TouchableOpacity onPress={loadRandomQuestion}>
+          <Text style={styles.bottomLink}>Skip</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity>
+          <Text style={styles.bottomLink}>Share</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => router.push('/categories')}>
+          <Text style={styles.bottomLink}>Categories</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#090611',
+    paddingHorizontal: 22,
+    paddingTop: 70,
+    paddingBottom: 34,
+    justifyContent: 'space-between',
+  },
+  center: {
+    flex: 1,
+    backgroundColor: '#090611',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  emptyText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 18,
+  },
+  backButton: {
+    backgroundColor: '#1a1328',
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: '#2b2140',
+  },
+  backButtonText: {
+    color: '#ece7ff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  glowTop: {
+    position: 'absolute',
+    top: 110,
+    alignSelf: 'center',
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: '#6f3cff',
+    opacity: 0.14,
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  streak: {
+    color: '#bda8ff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#171022',
+    borderWidth: 1,
+    borderColor: '#2a2138',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconButtonText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  categoryPill: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(26, 19, 40, 0.72)',
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(95, 76, 140, 0.35)',
+  },
+  categoryText: {
+    color: '#d8ceff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  card: {
+    backgroundColor: '#151021',
+    borderRadius: 32,
+    paddingVertical: 48,
+    paddingHorizontal: 26,
+    borderWidth: 1,
+    borderColor: '#241b39',
+  },
+  questionText: {
+    color: '#ffffff',
+    fontSize: 32,
+    lineHeight: 40,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  buttonRow: {
+    gap: 14,
+  },
+  yesButton: {
+    backgroundColor: '#6f3cff',
+    borderRadius: 22,
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  noButton: {
+    backgroundColor: '#1a1328',
+    borderRadius: 22,
+    paddingVertical: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2b2140',
+  },
+  yesButtonText: {
+    color: '#ffffff',
+    fontSize: 19,
+    fontWeight: '800',
+  },
+  noButtonText: {
+    color: '#ece7ff',
+    fontSize: 19,
+    fontWeight: '800',
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 26,
+  },
+  bottomLink: {
+    color: '#8f87a8',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+});
