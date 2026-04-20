@@ -1,13 +1,14 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { supabase } from '../lib/supabase';
+import { ensureAnonymousSession, supabase } from '../lib/supabase';
 
 export default function ResultScreen() {
-  const { questionId, questionText, answer } = useLocalSearchParams<{
+  const { questionId, questionText, answer, category } = useLocalSearchParams<{
     questionId: string;
     questionText: string;
     answer: string;
+    category?: string;
   }>();
 
   const [saving, setSaving] = useState(false);
@@ -35,12 +36,12 @@ useEffect(() => {
 
     if (error) {
       console.log('Load results error:', error.message);
-      setPercentYes(50);
+      setPercentYes(null);
       return;
     }
 
     if (!data || data.length === 0) {
-      setPercentYes(50);
+      setPercentYes(0);
       return;
     }
 
@@ -58,12 +59,10 @@ useEffect(() => {
 
     setSaving(true);
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const session = await ensureAnonymousSession();
+    const user = session?.user ?? null;
 
-    if (userError || !user) {
+    if (!user) {
       setSaving(false);
       Alert.alert('Not ready yet', 'Could not find your session.');
       return;
@@ -74,8 +73,8 @@ useEffect(() => {
       question_id: questionId ?? null,
       question_text: questionText ?? '',
       answer: saidYes,
-      result_percent: percent,
-      category: 'Crushes & Relationships',
+      result_percent: percentYes,
+      category: category ?? null,
     });
 
     setSaving(false);
@@ -122,7 +121,15 @@ useEffect(() => {
       </View>
 
       <View style={styles.actionStack}>
-        <TouchableOpacity style={styles.nextButton} onPress={() => router.replace('/question')}>
+        <TouchableOpacity
+          style={styles.nextButton}
+          onPress={() =>
+            router.replace({
+              pathname: '/question',
+              params: category ? { category } : {},
+            })
+          }
+        >
           <Text style={styles.nextButtonText}>Next question</Text>
         </TouchableOpacity>
 

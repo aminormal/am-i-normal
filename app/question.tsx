@@ -22,10 +22,6 @@ const categoryNames: Record<string, string> = {
   identity: '🧬 Identity',
 };
 
-const categoryIdToSlug: Record<string, string> = {
-  // we'll fill this later if needed
-};
-
 export default function QuestionScreen() {
   const { category } = useLocalSearchParams<{ category?: string }>();
   const selectedCategory = category ?? 'all';
@@ -33,64 +29,78 @@ export default function QuestionScreen() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadRandomQuestion();
-  }, [selectedCategory]);
-
   async function loadRandomQuestion() {
     try {
       setLoading(true);
 
-      const { data, error } = await supabase
+      console.log('[Question] selectedCategory:', selectedCategory);
+
+      // Ensure auth is ready (important if RLS depends on an authenticated user)
+      await ensureAnonymousSession();
+
+      const { data: allActiveQuestions, error } = await supabase
         .from('questions')
         .select('id, text, category_id')
         .eq('is_active', true);
 
       if (error) {
-        console.log('Question load error:', error.message);
+        console.log('[Question] question load error:', error.message);
         setQuestion(null);
         return;
       }
 
-      if (!data || data.length === 0) {
+      console.log('[Question] all active questions:', allActiveQuestions ?? []);
+
+      if (!allActiveQuestions || allActiveQuestions.length === 0) {
         setQuestion(null);
         return;
       }
 
-      let filtered = data;
+      let eligibleQuestions = allActiveQuestions;
 
       if (selectedCategory !== 'all') {
-        const { data: catRow, error: catError } = await supabase
+        const { data: matchedCategoryRow, error: catError } = await supabase
           .from('categories')
-          .select('id')
+          .select('id, slug')
           .eq('slug', selectedCategory)
           .maybeSingle();
 
         if (catError) {
-          console.log('Category lookup error:', catError.message);
+          console.log('[Question] category lookup error:', catError.message);
         }
 
-        if (catRow?.id) {
-          filtered = data.filter((q) => q.category_id === catRow.id);
+        console.log('[Question] matched category row:', matchedCategoryRow ?? null);
+
+        if (matchedCategoryRow?.id) {
+          const filtered = allActiveQuestions.filter((q) => q.category_id === matchedCategoryRow.id);
+          console.log('[Question] filtered count:', filtered.length);
+
+          // Only apply category filtering if it produces matches; otherwise fall back.
+          if (filtered.length > 0) {
+            eligibleQuestions = filtered;
+          }
         } else {
-          filtered = [];
+          console.log('[Question] filtered count:', 0);
         }
+      } else {
+        console.log('[Question] matched category row:', null);
+        console.log('[Question] filtered count:', eligibleQuestions.length);
       }
 
-      if (!filtered || filtered.length === 0) {
-        setQuestion(null);
-        return;
-      }
-
-      const randomItem = filtered[Math.floor(Math.random() * filtered.length)];
+      const randomItem = eligibleQuestions[Math.floor(Math.random() * eligibleQuestions.length)];
       setQuestion(randomItem);
     } catch (err) {
-      console.log('Unexpected question load error:', err);
+      console.log('[Question] unexpected load error:', err);
       setQuestion(null);
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadRandomQuestion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory]);
 
   if (loading) {
     return (
@@ -167,6 +177,7 @@ onPress={async () => {
       questionId: question.id,
       questionText: question.text,
       answer: 'yes',
+      category: selectedCategory,
     },
   });
 }}
@@ -201,6 +212,7 @@ onPress={async () => {
       questionId: question.id,
       questionText: question.text,
       answer: 'no',
+      category: selectedCategory,
     },
   });
 }}

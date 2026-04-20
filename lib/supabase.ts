@@ -14,19 +14,43 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
+let ensureSessionInFlight: Promise<Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session'] | null> | null =
+  null;
+
 export async function ensureAnonymousSession() {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  if (ensureSessionInFlight) return ensureSessionInFlight;
 
-  if (session?.user) return session;
+  ensureSessionInFlight = (async () => {
+    try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-  const { data, error } = await supabase.auth.signInAnonymously();
+      if (sessionError) {
+        console.log('Get session error:', sessionError.message);
+      }
 
-  if (error) {
-    console.log('Anonymous sign-in error:', error.message);
-    return null;
-  }
+      if (session?.user) return session;
 
-  return data.session;
+      const { data, error } = await supabase.auth.signInAnonymously();
+
+      if (error) {
+        console.log('Anonymous sign-in error:', error.message);
+        return null;
+      }
+
+      // Re-read from storage to avoid edge cases where the first returned session
+      // isn't the one the client ends up persisting.
+      const {
+        data: { session: persistedSession },
+      } = await supabase.auth.getSession();
+
+      return persistedSession ?? data.session ?? null;
+    } finally {
+      ensureSessionInFlight = null;
+    }
+  })();
+
+  return ensureSessionInFlight;
 }

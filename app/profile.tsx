@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { supabase } from '../lib/supabase';
+import { ensureAnonymousSession, supabase } from '../lib/supabase';
 
 type SavedResult = {
   id: string;
@@ -22,6 +22,7 @@ export default function ProfileScreen() {
   async function loadSavedResults() {
     setLoading(true);
 
+    await ensureAnonymousSession();
     const {
       data: { user },
     } = await supabase.auth.getUser();
