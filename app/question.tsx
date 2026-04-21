@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ensureAnonymousSession, supabase } from '../lib/supabase';
 
@@ -27,29 +27,40 @@ export default function QuestionScreen() {
   const { category } = useLocalSearchParams<{ category?: string }>();
   const selectedCategory = category ?? 'all';
 
+  const [activeCategory, setActiveCategory] = useState(selectedCategory);
+  const [seenQuestionIds, setSeenQuestionIds] = useState<string[]>([]);
   const [question, setQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
-  const [categoryMode, setCategoryMode] = useState<string>(selectedCategory);
-  const [seenInCategory, setSeenInCategory] = useState<string[]>([]);
-  const [seenInAll, setSeenInAll] = useState<string[]>([]);
+
+  const lastRouteCategoryRef = useRef(selectedCategory);
+
+  useEffect(() => {
+    setActiveCategory(selectedCategory);
+    setSeenQuestionIds([]);
+  }, [selectedCategory]);
 
   async function loadRandomQuestion() {
     try {
       setLoading(true);
 
-      console.log('[Question] selectedCategory:', selectedCategory);
-      console.log('[Question] categoryMode:', categoryMode);
+      let mode = activeCategory;
+      let seen = [...seenQuestionIds];
+      if (lastRouteCategoryRef.current !== selectedCategory) {
+        lastRouteCategoryRef.current = selectedCategory;
+        mode = selectedCategory;
+        seen = [];
+        setActiveCategory(selectedCategory);
+        setSeenQuestionIds([]);
+      }
 
       const { data: allActiveQuestions, error } = await supabase
         .from('questions')
         .select('id, text, category_id')
         .eq('is_active', true);
 
-      console.log('[Question] all active questions:', allActiveQuestions ?? []);
-
       if (error) {
-        console.log('[Question] question load error:', error.message);
-        // Don't clear the current question on transient load errors.
+        console.log('Question load error:', error.message);
+        setQuestion(null);
         return;
       }
 
@@ -58,79 +69,92 @@ export default function QuestionScreen() {
         return;
       }
 
-      // Default: all active questions.
-      let eligibleQuestions = allActiveQuestions;
+      let pool = allActiveQuestions;
 
-      if (categoryMode !== 'all') {
+      // If we are in a category, try category questions first
+      if (mode !== 'all') {
         const { data: matchedCategoryRow, error: catError } = await supabase
           .from('categories')
-          .select('id, slug')
-          .eq('slug', categoryMode)
+          .select('id')
+          .eq('slug', mode)
           .maybeSingle();
 
         if (catError) {
-          console.log('[Question] category lookup error:', catError.message);
+          console.log('Category lookup error:', catError.message);
         }
 
-        console.log('[Question] matched category row:', matchedCategoryRow ?? null);
-
         if (matchedCategoryRow?.id) {
-          const filtered = allActiveQuestions.filter((q) => q.category_id === matchedCategoryRow.id);
-          console.log('[Question] filtered count:', filtered.length);
+          const categoryQuestions = allActiveQuestions.filter(
+            (q) => q.category_id === matchedCategoryRow.id
+          );
 
-          // Only use the category-filtered list if it has matches; otherwise fall back to all.
-          if (filtered.length > 0) {
-            const unseen = filtered.filter((q) => !seenInCategory.includes(q.id));
+          const unseenCategoryQuestions = categoryQuestions.filter((q) => !seen.includes(q.id));
 
-            // If we've exhausted the category, fall back to all categories automatically.
-            if (unseen.length === 0) {
-              console.log('[Question] category exhausted; falling back to all');
-              setCategoryMode('all');
-              setSeenInCategory([]);
-              eligibleQuestions = allActiveQuestions;
+          if (unseenCategoryQuestions.length > 0) {
+            pool = unseenCategoryQuestions;
+          } else {
+            // Category exhausted → fall back to all categories
+            setActiveCategory('all');
+            mode = 'all';
+
+            const unseenAllQuestions = allActiveQuestions.filter((q) => !seen.includes(q.id));
+
+            if (unseenAllQuestions.length > 0) {
+              pool = unseenAllQuestions;
             } else {
-              eligibleQuestions = unseen;
+              // Everything exhausted → reset seen list and start over
+              setSeenQuestionIds([]);
+              seen = [];
+              pool = allActiveQuestions;
             }
           }
         } else {
-          console.log('[Question] filtered count:', 0);
+          // Bad/missing category slug → fall back to all
+          const unseenAllQuestions = allActiveQuestions.filter((q) => !seen.includes(q.id));
+
+          if (unseenAllQuestions.length > 0) {
+            pool = unseenAllQuestions;
+            setActiveCategory('all');
+            mode = 'all';
+          } else {
+            setSeenQuestionIds([]);
+            seen = [];
+            pool = allActiveQuestions;
+            setActiveCategory('all');
+            mode = 'all';
+          }
         }
       } else {
-        console.log('[Question] matched category row:', null);
-        console.log('[Question] filtered count:', eligibleQuestions.length);
-      }
+        // All Categories mode → avoid duplicates
+        const unseenAllQuestions = allActiveQuestions.filter((q) => !seen.includes(q.id));
 
-      // Prefer unseen questions in "all" mode if possible.
-      if (categoryMode === 'all') {
-        const unseenAll = eligibleQuestions.filter((q) => !seenInAll.includes(q.id));
-        if (unseenAll.length > 0) {
-          eligibleQuestions = unseenAll;
+        if (unseenAllQuestions.length > 0) {
+          pool = unseenAllQuestions;
         } else {
-          // If we somehow saw everything, start over.
-          setSeenInAll([]);
+          // Everything exhausted → reset seen list and start over
+          setSeenQuestionIds([]);
+          seen = [];
+          pool = allActiveQuestions;
         }
       }
 
-      const randomItem = eligibleQuestions[Math.floor(Math.random() * eligibleQuestions.length)];
-      setQuestion(randomItem);
-
-      if (categoryMode === 'all') {
-        setSeenInAll((prev) => (prev.includes(randomItem.id) ? prev : [...prev, randomItem.id]));
-      } else {
-        setSeenInCategory((prev) => (prev.includes(randomItem.id) ? prev : [...prev, randomItem.id]));
+      if (!pool || pool.length === 0) {
+        setQuestion(null);
+        return;
       }
+
+      const randomItem = pool[Math.floor(Math.random() * pool.length)];
+      setQuestion(randomItem);
+      setSeenQuestionIds((prev) => [...prev, randomItem.id]);
     } catch (err) {
-      console.log('[Question] unexpected load error:', err);
-      // Don't clear the current question on transient load errors.
+      console.log('Unexpected question load error:', err);
+      setQuestion(null);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    // When navigation param changes, treat it as a new "category session".
-    setCategoryMode(selectedCategory);
-    setSeenInCategory([]);
     loadRandomQuestion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory]);
@@ -174,7 +198,7 @@ export default function QuestionScreen() {
         onPress={() => router.push('/categories')}
       >
         <Text style={styles.categoryText}>
-          {categoryNames[selectedCategory] ?? '✨ All Categories'}
+          {categoryNames[activeCategory] ?? '✨ All Categories'}
         </Text>
       </TouchableOpacity>
 
@@ -210,7 +234,7 @@ export default function QuestionScreen() {
           questionId: question.id,
           questionText: question.text,
           answer: 'yes', // ✅ YES route
-          category: selectedCategory,
+          category: activeCategory,
         },
       });
     }}
@@ -245,7 +269,7 @@ export default function QuestionScreen() {
           questionId: question.id,
           questionText: question.text,
           answer: 'no', // ✅ NO route
-          category: selectedCategory,
+          category: activeCategory,
         },
       });
     }}
