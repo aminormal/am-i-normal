@@ -29,12 +29,16 @@ export default function QuestionScreen() {
 
   const [question, setQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
+  const [categoryMode, setCategoryMode] = useState<string>(selectedCategory);
+  const [seenInCategory, setSeenInCategory] = useState<string[]>([]);
+  const [seenInAll, setSeenInAll] = useState<string[]>([]);
 
   async function loadRandomQuestion() {
     try {
       setLoading(true);
 
       console.log('[Question] selectedCategory:', selectedCategory);
+      console.log('[Question] categoryMode:', categoryMode);
 
       const { data: allActiveQuestions, error } = await supabase
         .from('questions')
@@ -54,13 +58,14 @@ export default function QuestionScreen() {
         return;
       }
 
+      // Default: all active questions.
       let eligibleQuestions = allActiveQuestions;
 
-      if (selectedCategory !== 'all') {
+      if (categoryMode !== 'all') {
         const { data: matchedCategoryRow, error: catError } = await supabase
           .from('categories')
           .select('id, slug')
-          .eq('slug', selectedCategory)
+          .eq('slug', categoryMode)
           .maybeSingle();
 
         if (catError) {
@@ -75,7 +80,17 @@ export default function QuestionScreen() {
 
           // Only use the category-filtered list if it has matches; otherwise fall back to all.
           if (filtered.length > 0) {
-            eligibleQuestions = filtered;
+            const unseen = filtered.filter((q) => !seenInCategory.includes(q.id));
+
+            // If we've exhausted the category, fall back to all categories automatically.
+            if (unseen.length === 0) {
+              console.log('[Question] category exhausted; falling back to all');
+              setCategoryMode('all');
+              setSeenInCategory([]);
+              eligibleQuestions = allActiveQuestions;
+            } else {
+              eligibleQuestions = unseen;
+            }
           }
         } else {
           console.log('[Question] filtered count:', 0);
@@ -85,8 +100,25 @@ export default function QuestionScreen() {
         console.log('[Question] filtered count:', eligibleQuestions.length);
       }
 
+      // Prefer unseen questions in "all" mode if possible.
+      if (categoryMode === 'all') {
+        const unseenAll = eligibleQuestions.filter((q) => !seenInAll.includes(q.id));
+        if (unseenAll.length > 0) {
+          eligibleQuestions = unseenAll;
+        } else {
+          // If we somehow saw everything, start over.
+          setSeenInAll([]);
+        }
+      }
+
       const randomItem = eligibleQuestions[Math.floor(Math.random() * eligibleQuestions.length)];
       setQuestion(randomItem);
+
+      if (categoryMode === 'all') {
+        setSeenInAll((prev) => (prev.includes(randomItem.id) ? prev : [...prev, randomItem.id]));
+      } else {
+        setSeenInCategory((prev) => (prev.includes(randomItem.id) ? prev : [...prev, randomItem.id]));
+      }
     } catch (err) {
       console.log('[Question] unexpected load error:', err);
       // Don't clear the current question on transient load errors.
@@ -96,6 +128,9 @@ export default function QuestionScreen() {
   }
 
   useEffect(() => {
+    // When navigation param changes, treat it as a new "category session".
+    setCategoryMode(selectedCategory);
+    setSeenInCategory([]);
     loadRandomQuestion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory]);
