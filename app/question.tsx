@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ensureAnonymousSession, supabase } from '../lib/supabase';
+
 type Question = {
   id: string;
   text: string;
@@ -35,21 +36,18 @@ export default function QuestionScreen() {
 
       console.log('[Question] selectedCategory:', selectedCategory);
 
-      // Ensure auth is ready (important if RLS depends on an authenticated user)
-      await ensureAnonymousSession();
-
       const { data: allActiveQuestions, error } = await supabase
         .from('questions')
         .select('id, text, category_id')
         .eq('is_active', true);
 
+      console.log('[Question] all active questions:', allActiveQuestions ?? []);
+
       if (error) {
         console.log('[Question] question load error:', error.message);
-        setQuestion(null);
+        // Don't clear the current question on transient load errors.
         return;
       }
-
-      console.log('[Question] all active questions:', allActiveQuestions ?? []);
 
       if (!allActiveQuestions || allActiveQuestions.length === 0) {
         setQuestion(null);
@@ -75,7 +73,7 @@ export default function QuestionScreen() {
           const filtered = allActiveQuestions.filter((q) => q.category_id === matchedCategoryRow.id);
           console.log('[Question] filtered count:', filtered.length);
 
-          // Only apply category filtering if it produces matches; otherwise fall back.
+          // Only use the category-filtered list if it has matches; otherwise fall back to all.
           if (filtered.length > 0) {
             eligibleQuestions = filtered;
           }
@@ -91,7 +89,7 @@ export default function QuestionScreen() {
       setQuestion(randomItem);
     } catch (err) {
       console.log('[Question] unexpected load error:', err);
-      setQuestion(null);
+      // Don't clear the current question on transient load errors.
     } finally {
       setLoading(false);
     }
@@ -114,8 +112,8 @@ export default function QuestionScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.emptyText}>No active questions found.</Text>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.push('/categories')}>
-          <Text style={styles.backButtonText}>Choose another category</Text>
+        <TouchableOpacity style={styles.backButton} onPress={loadRandomQuestion}>
+          <Text style={styles.backButtonText}>Try again</Text>
         </TouchableOpacity>
       </View>
     );
@@ -126,14 +124,14 @@ export default function QuestionScreen() {
       <View style={styles.glowTop} />
 
       <View style={styles.topRow}>
-        <Text style={styles.streak}>🔥 3 in a row</Text>
+        <Text style={styles.streak}>✨ Am I Normal</Text>
 
         <TouchableOpacity
-  style={styles.iconButton}
-  onPress={() => router.push('/create')}
->
-  <Text style={styles.iconButtonText}>＋</Text>
-</TouchableOpacity>
+          style={styles.iconButton}
+          onPress={() => router.push('/create')}
+        >
+          <Text style={styles.iconButtonText}>＋</Text>
+        </TouchableOpacity>
       </View>
 
       <TouchableOpacity
@@ -149,85 +147,80 @@ export default function QuestionScreen() {
         <Text style={styles.questionText}>{question.text}</Text>
       </View>
 
-<View style={styles.buttonRow}>
+      <View style={styles.buttonRow}>
   <TouchableOpacity
     style={styles.yesButton}
-onPress={async () => {
-  const session = await ensureAnonymousSession();
+    onPress={async () => {
+      const session = await ensureAnonymousSession();
 
-  if (!session?.user) {
-    Alert.alert('User error', 'Could not create your session.');
-    return;
-  }
+      if (!session?.user) {
+        Alert.alert('User error', 'Could not create your session.');
+        return;
+      }
 
-  const { error } = await supabase.from('responses').insert({
-    user_id: session.user.id,
-    question_id: question.id,
-    answer: true,
-  });
+      const { error } = await supabase.from('responses').insert({
+        user_id: session.user.id,
+        question_id: question.id,
+        answer: true, // ✅ YES = true
+      });
 
-  if (error) {
-    Alert.alert('Insert YES error', error.message);
-    return;
-  }
+      if (error) {
+        Alert.alert('Insert YES error', error.message);
+        return;
+      }
 
-  router.push({
-    pathname: '/result',
-    params: {
-      questionId: question.id,
-      questionText: question.text,
-      answer: 'yes',
-      category: selectedCategory,
-    },
-  });
-}}
+      router.push({
+        pathname: '/result',
+        params: {
+          questionId: question.id,
+          questionText: question.text,
+          answer: 'yes', // ✅ YES route
+          category: selectedCategory,
+        },
+      });
+    }}
   >
     <Text style={styles.yesButtonText}>Yes</Text>
   </TouchableOpacity>
 
   <TouchableOpacity
     style={styles.noButton}
- onPress={async () => {
-  const session = await ensureAnonymousSession();
+    onPress={async () => {
+      const session = await ensureAnonymousSession();
 
-  if (!session?.user) {
-    Alert.alert('User error', 'Could not create your session.');
-    return;
-  }
+      if (!session?.user) {
+        Alert.alert('User error', 'Anonymous session was not created.');
+        return;
+      }
 
-  const { error } = await supabase.from('responses').insert({
-    user_id: session.user.id,
-    question_id: question.id,
-    answer: false,
-  });
+      const { error } = await supabase.from('responses').insert({
+        user_id: session.user.id,
+        question_id: question.id,
+        answer: false, // ✅ NO = false
+      });
 
-  if (error) {
-    Alert.alert('Insert NO error', error.message);
-    return;
-  }
+      if (error) {
+        Alert.alert('Insert NO error', error.message);
+        return;
+      }
 
-  router.push({
-    pathname: '/result',
-    params: {
-      questionId: question.id,
-      questionText: question.text,
-      answer: 'no',
-      category: selectedCategory,
-    },
-  });
-}}
+      router.push({
+        pathname: '/result',
+        params: {
+          questionId: question.id,
+          questionText: question.text,
+          answer: 'no', // ✅ NO route
+          category: selectedCategory,
+        },
+      });
+    }}
   >
     <Text style={styles.noButtonText}>No</Text>
   </TouchableOpacity>
 </View>
-
       <View style={styles.bottomRow}>
         <TouchableOpacity onPress={loadRandomQuestion}>
           <Text style={styles.bottomLink}>Skip</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity>
-          <Text style={styles.bottomLink}>Share</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push('/categories')}>
