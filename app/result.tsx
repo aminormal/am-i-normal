@@ -4,11 +4,13 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ensureAnonymousSession, supabase } from '../lib/supabase';
 
 export default function ResultScreen() {
-  const { questionId, questionText, answer, category } = useLocalSearchParams<{
+  const { questionId, questionText, answer, category, seen, streak } = useLocalSearchParams<{
     questionId: string;
     questionText: string;
     answer: string;
     category?: string;
+    seen?: string;
+    streak?: string;
   }>();
 
   const [saving, setSaving] = useState(false);
@@ -36,17 +38,19 @@ useEffect(() => {
 
     if (error) {
       console.log('Load results error:', error.message);
-      setPercentYes(null);
+      setPercentYes(50);
       return;
     }
 
     if (!data || data.length === 0) {
-      setPercentYes(0);
+      setPercentYes(50);
       return;
     }
 
     const yesCount = data.filter((r) => r.answer === true).length;
-    const calculatedPercentYes = Math.round((yesCount / data.length) * 100);
+    const total = data.length;
+
+    const calculatedPercentYes = Math.round((yesCount / total) * 100);
 
     setPercentYes(calculatedPercentYes);
   }
@@ -73,7 +77,12 @@ useEffect(() => {
       question_id: questionId ?? null,
       question_text: questionText ?? '',
       answer: saidYes,
-      result_percent: percentYes,
+      result_percent:
+  percentYes === null
+    ? null
+    : saidYes
+      ? percentYes
+      : 100 - percentYes,
       category: category ?? null,
     });
 
@@ -121,32 +130,39 @@ useEffect(() => {
       </View>
 
       <View style={styles.actionStack}>
-        <TouchableOpacity
-          style={styles.nextButton}
-          onPress={() =>
-            router.replace({
-              pathname: '/question',
-              params: category ? { category } : {},
-            })
-          }
-        >
-          <Text style={styles.nextButtonText}>Next question</Text>
-        </TouchableOpacity>
+  <TouchableOpacity
+    style={styles.nextButton}
+    onPress={() =>
+      router.replace({
+        pathname: '/question',
+        params: {
+          category: category ?? 'all',
+          seen: seen ?? '[]',
+          streak: streak ?? '0',
+        },
+      })
+    }
+  >
+    <Text style={styles.nextButtonText}>Next question</Text>
+  </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.shareButton}
-          onPress={handleSaveResult}
-          disabled={saving || saved}
-        >
-          <Text style={styles.shareButtonText}>
-            {saved ? 'Saved ✔' : saving ? 'Saving...' : 'Save result'}
-          </Text>
-        </TouchableOpacity>
+  <TouchableOpacity
+    style={styles.shareButton}
+    onPress={handleSaveResult}
+    disabled={saving || saved}
+  >
+    <Text style={styles.shareButtonText}>
+      {saved ? 'Saved ✔' : saving ? 'Saving...' : 'Save result'}
+    </Text>
+  </TouchableOpacity>
 
-        <TouchableOpacity style={styles.ghostButton} onPress={() => router.push('/profile')}>
-          <Text style={styles.ghostButtonText}>View profile</Text>
-        </TouchableOpacity>
-      </View>
+  <TouchableOpacity
+    style={styles.ghostButton}
+    onPress={() => router.push('/profile')}
+  >
+    <Text style={styles.ghostButtonText}>View profile</Text>
+  </TouchableOpacity>
+</View>
     </View>
   );
 }

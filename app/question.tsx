@@ -24,11 +24,19 @@ const categoryNames: Record<string, string> = {
 };
 
 export default function QuestionScreen() {
-  const { category } = useLocalSearchParams<{ category?: string }>();
+  const { category, seen, streak } = useLocalSearchParams<{
+    category?: string;
+    seen?: string;
+    streak?: string;
+  }>();
+
+  const initialSeen = seen ? JSON.parse(seen) : [];
+  const initialStreak = streak ? Number(streak) : 0;
   const selectedCategory = category ?? 'all';
 
+  const [streakCount, setStreakCount] = useState(initialStreak);
   const [activeCategory, setActiveCategory] = useState(selectedCategory);
-  const [seenQuestionIds, setSeenQuestionIds] = useState<string[]>([]);
+  const [seenQuestionIds, setSeenQuestionIds] = useState<string[]>(initialSeen);
   const [question, setQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -36,8 +44,9 @@ export default function QuestionScreen() {
 
   useEffect(() => {
     setActiveCategory(selectedCategory);
-    setSeenQuestionIds([]);
-  }, [selectedCategory]);
+    setSeenQuestionIds(initialSeen);
+    setStreakCount(initialStreak);
+  }, [selectedCategory, seen, streak]);
 
   async function loadRandomQuestion() {
     try {
@@ -183,7 +192,7 @@ export default function QuestionScreen() {
       <View style={styles.glowTop} />
 
       <View style={styles.topRow}>
-        <Text style={styles.streak}>✨ Am I Normal</Text>
+      <Text style={styles.streak}>🔥 {streakCount} in a row</Text>
 
         <TouchableOpacity
           style={styles.iconButton}
@@ -227,14 +236,17 @@ export default function QuestionScreen() {
         Alert.alert('Insert YES error', error.message);
         return;
       }
-
+      const nextStreak = streakCount + 1;
+setStreakCount(nextStreak);
       router.push({
         pathname: '/result',
         params: {
           questionId: question.id,
           questionText: question.text,
-          answer: 'yes', // ✅ YES route
+          answer: 'yes',
           category: activeCategory,
+          seen: JSON.stringify([...seenQuestionIds, question.id]),
+          streak: String(nextStreak),
         },
       });
     }}
@@ -262,18 +274,21 @@ export default function QuestionScreen() {
         Alert.alert('Insert NO error', error.message);
         return;
       }
-
-      router.push({
-        pathname: '/result',
-        params: {
-          questionId: question.id,
-          questionText: question.text,
-          answer: 'no', // ✅ NO route
-          category: activeCategory,
-        },
-      });
-    }}
-  >
+      const nextStreak = streakCount + 1;
+      setStreakCount(nextStreak);
+            router.push({
+              pathname: '/result',
+              params: {
+                questionId: question.id,
+                questionText: question.text,
+                answer: 'no',
+                category: activeCategory,
+                seen: JSON.stringify([...seenQuestionIds, question.id]),
+                streak: String(nextStreak),
+              },
+            });
+          }}
+        >
     <Text style={styles.noButtonText}>No</Text>
   </TouchableOpacity>
 </View>
