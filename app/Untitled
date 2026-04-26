@@ -183,7 +183,7 @@ export default function QuestionScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.glowTop} pointerEvents="none" />
+      <View style={styles.glowTop} />
 
       <View style={styles.topRow}>
         <Text style={styles.streak}>🔥 {streakCount} in a row</Text>
@@ -213,45 +213,37 @@ export default function QuestionScreen() {
         <TouchableOpacity
           style={styles.yesButton}
           onPress={async () => {
-            try {
-              console.log('YES pressed');
-              const session = await ensureAnonymousSession();
+            const session = await ensureAnonymousSession();
 
-              if (!session?.user) {
-                Alert.alert('User error', 'Could not create your session.');
-                return;
-              }
-
-              const { error } = await supabase.from('responses').insert({
-                user_id: session.user.id,
-                question_id: question.id,
-                answer: true,
-              });
-
-              console.log('insert result:', error?.message, error?.code);
-
-              if (error) {
-                Alert.alert('Insert YES error', error.message);
-                return;
-              }
-
-              const nextStreak = streakCount + 1;
-              setStreakCount(nextStreak);
-              console.log('navigating to result');
-              router.replace({
-                pathname: '/result',
-                params: {
-                  questionId: question.id,
-                  questionText: question.text,
-                  answer: 'yes',
-                  category: activeCategory,
-                  seen: JSON.stringify([...seenQuestionIds, question.id]),
-                  streak: String(nextStreak),
-                },
-              });
-            } catch (e) {
-              console.log('YES CRASH:', e);
+            if (!session?.user) {
+              Alert.alert('User error', 'Could not create your session.');
+              return;
             }
+
+            const { error } = await supabase.from('responses').insert({
+              user_id: session.user.id,
+              question_id: question.id,
+              answer: true,
+            });
+
+            if (error) {
+              Alert.alert('Insert YES error', error.message);
+              return;
+            }
+
+            const nextStreak = streakCount + 1;
+            setStreakCount(nextStreak);
+            router.replace({
+              pathname: '/result',
+              params: {
+                questionId: question.id,
+                questionText: question.text,
+                answer: 'yes',
+                category: activeCategory,
+                seen: JSON.stringify([...seenQuestionIds, question.id]),
+                streak: String(nextStreak),
+              },
+            });
           }}
         >
           <Text style={styles.yesButtonText}>Yes</Text>
@@ -260,45 +252,37 @@ export default function QuestionScreen() {
         <TouchableOpacity
           style={styles.noButton}
           onPress={async () => {
-            try {
-              console.log('NO pressed');
-              const session = await ensureAnonymousSession();
+            const session = await ensureAnonymousSession();
 
-              if (!session?.user) {
-                Alert.alert('User error', 'Could not create your session.');
-                return;
-              }
-
-              const { error } = await supabase.from('responses').insert({
-                user_id: session.user.id,
-                question_id: question.id,
-                answer: false,
-              });
-
-              console.log('insert result:', error?.message, error?.code);
-
-              if (error) {
-                Alert.alert('Insert NO error', error.message);
-                return;
-              }
-
-              const nextStreak = streakCount + 1;
-              setStreakCount(nextStreak);
-              console.log('navigating to result');
-              router.replace({
-                pathname: '/result',
-                params: {
-                  questionId: question.id,
-                  questionText: question.text,
-                  answer: 'no',
-                  category: activeCategory,
-                  seen: JSON.stringify([...seenQuestionIds, question.id]),
-                  streak: String(nextStreak),
-                },
-              });
-            } catch (e) {
-              console.log('NO CRASH:', e);
+            if (!session?.user) {
+              Alert.alert('User error', 'Anonymous session was not created.');
+              return;
             }
+
+            const { error } = await supabase.from('responses').insert({
+              user_id: session.user.id,
+              question_id: question.id,
+              answer: false,
+            });
+
+            if (error) {
+              Alert.alert('Insert NO error', error.message);
+              return;
+            }
+
+            const nextStreak = streakCount + 1;
+            setStreakCount(nextStreak);
+            router.replace({
+              pathname: '/result',
+              params: {
+                questionId: question.id,
+                questionText: question.text,
+                answer: 'no',
+                category: activeCategory,
+                seen: JSON.stringify([...seenQuestionIds, question.id]),
+                streak: String(nextStreak),
+              },
+            });
           }}
         >
           <Text style={styles.noButtonText}>No</Text>

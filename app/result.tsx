@@ -1,65 +1,112 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ensureAnonymousSession, supabase } from '../lib/supabase';
 
 export default function ResultScreen() {
-  const { questionId, questionText, answer, category, seen, streak } = useLocalSearchParams<{
-    questionId: string;
-    questionText: string;
-    answer: string;
-    category?: string;
-    seen?: string;
-    streak?: string;
-  }>();
+  const { questionId, questionText, answer, category, seen, streak } =
+    useLocalSearchParams<{
+      questionId?: string;
+      questionText?: string;
+      answer?: string;
+      category?: string;
+      seen?: string;
+      streak?: string;
+    }>();
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [percentYes, setPercentYes] = useState<number | null>(null);
 
- const saidYes = answer === 'yes';
-const [percentYes, setPercentYes] = useState<number | null>(null);
-const emotionalLine =
-  percentYes === null
-    ? 'Loading...'
-    : saidYes
-      ? percentYes >= 50
-        ? "You're not alone."
-        : 'Less common…'
-      : 100 - percentYes >= 50
-        ? "You're not alone."
-        : 'Less common…';
+  const saidYes = answer === 'yes';
+  const displayedPercent =
+    percentYes === null ? null : saidYes ? percentYes : 100 - percentYes;
 
-useEffect(() => {
-  async function loadResults() {
-    const { data, error } = await supabase
-      .from('responses')
-      .select('answer')
-      .eq('question_id', questionId);
+  useEffect(() => {
+    async function loadResults() {
+      if (!questionId) {
+        setPercentYes(50);
+        return;
+      }
 
-    if (error) {
-      console.log('Load results error:', error.message);
-      setPercentYes(50);
-      return;
+      const { data, error } = await supabase
+        .from('responses')
+        .select('answer')
+        .eq('question_id', questionId);
+
+      if (error) {
+        console.log('Load results error:', error.message);
+        setPercentYes(50);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setPercentYes(50);
+        return;
+      }
+
+      const yesCount = data.filter((r) => r.answer === true).length;
+      setPercentYes(Math.round((yesCount / data.length) * 100));
     }
 
-    if (!data || data.length === 0) {
-      setPercentYes(50);
-      return;
-    }
+    loadResults();
+  }, [questionId]);
 
-    const yesCount = data.filter((r) => r.answer === true).length;
-    const total = data.length;
+  const couchReaction = useMemo(() => {
+    if (displayedPercent === null) return 'Checking the room...';
 
-    const calculatedPercentYes = Math.round((yesCount / total) * 100);
+    const lines = {
+      rare: [
+        "Okay… you're definitely built different.",
+        "I don't even know what to say to that.",
+        'You might be the main character.',
+        "This one's… concerning. In a fun way.",
+      ],
+      chaos: [
+        'You and your small crew… I see you.',
+        'Not common, but not alone either.',
+        'This is a very specific vibe.',
+        "You've got your own lane, clearly.",
+      ],
+      middle: [
+        "This one's pretty split, honestly.",
+        'Half the room agrees with you.',
+        'No clear winner here.',
+        "You're right in the middle of the chaos.",
+      ],
+      majority: [
+        'Yeah… a lot of people are with you on this.',
+        "We're all a little guilty here.",
+        'This one hits more people than expected.',
+        'Not proud of it, but yeah.',
+      ],
+      universal: [
+        'Yeah… basically everyone.',
+        "If you said no, I don't believe you.",
+        'This is just human at this point.',
+        "We all do this. It's fine.",
+      ],
+    };
 
-    setPercentYes(calculatedPercentYes);
-  }
+    let bucket: keyof typeof lines = 'middle';
 
-  loadResults();
-}, [questionId]);
+    if (displayedPercent <= 20) bucket = 'rare';
+    else if (displayedPercent <= 40) bucket = 'chaos';
+    else if (displayedPercent <= 60) bucket = 'middle';
+    else if (displayedPercent <= 80) bucket = 'majority';
+    else bucket = 'universal';
+
+    const bucketLines = lines[bucket];
+    return bucketLines[Math.floor(Math.random() * bucketLines.length)];
+  }, [displayedPercent]);
 
   async function handleSaveResult() {
     if (saving || saved) return;
+
+    if (!questionText || !questionId) {
+      Alert.alert('Save failed', 'Missing result details.');
+      return;
+    }
 
     setSaving(true);
 
@@ -74,15 +121,10 @@ useEffect(() => {
 
     const { error } = await supabase.from('saved_results').insert({
       user_id: user.id,
-      question_id: questionId ?? null,
-      question_text: questionText ?? '',
+      question_id: questionId,
+      question_text: questionText,
       answer: saidYes,
-      result_percent:
-  percentYes === null
-    ? null
-    : saidYes
-      ? percentYes
-      : 100 - percentYes,
+      result_percent: displayedPercent,
       category: category ?? null,
     });
 
@@ -98,29 +140,34 @@ useEffect(() => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.glow} />
+      <View style={styles.glow} pointerEvents="none" />
 
       <Text style={styles.youSaid}>
         You said <Text style={styles.youSaidStrong}>{saidYes ? 'YES' : 'NO'}</Text>
       </Text>
 
-      <Text style={styles.questionText}>{questionText}</Text>
+      <Text style={styles.questionText}>{questionText ?? 'Question'}</Text>
 
       <View style={styles.resultCard}>
-       <Text style={styles.percent}>
-  {percentYes === null ? '...' : `${saidYes ? percentYes : 100 - percentYes}%`}
-</Text>
-        <Text style={styles.percentLabel}>of people answered {saidYes ? 'YES' : 'NO'}</Text>
-        <Text style={styles.emotionalLine}>{emotionalLine}</Text>
+        <Text style={styles.percent}>
+          {displayedPercent === null ? '...' : `${displayedPercent}%`}
+        </Text>
+
+        <Text style={styles.percentLabel}>
+          of people answered {saidYes ? 'YES' : 'NO'}
+        </Text>
+
+        <Text style={styles.compareText}>{couchReaction}</Text>
 
         <View style={styles.segmentCard}>
           <Text style={styles.segmentTitle}>See how people like you answered</Text>
 
           <View style={styles.segmentRow}>
-            <Text style={styles.segmentBlur}>Women: 82%</Text>
+            <Text style={styles.segmentBlur}>Women: locked</Text>
           </View>
+
           <View style={styles.segmentRow}>
-            <Text style={styles.segmentBlur}>18–24: 85%</Text>
+            <Text style={styles.segmentBlur}>Your age group: locked</Text>
           </View>
 
           <TouchableOpacity style={styles.unlockButton}>
@@ -130,39 +177,36 @@ useEffect(() => {
       </View>
 
       <View style={styles.actionStack}>
-  <TouchableOpacity
-    style={styles.nextButton}
-    onPress={() =>
-      router.replace({
-        pathname: '/question',
-        params: {
-          category: category ?? 'all',
-          seen: seen ?? '[]',
-          streak: streak ?? '0',
-        },
-      })
-    }
-  >
-    <Text style={styles.nextButtonText}>Next question</Text>
-  </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.nextButton}
+          onPress={() =>
+            router.replace({
+              pathname: '/question',
+              params: {
+                category: category ?? 'all',
+                seen: seen ?? '[]',
+                streak: streak ?? '0',
+              },
+            })
+          }
+        >
+          <Text style={styles.nextButtonText}>Next question</Text>
+        </TouchableOpacity>
 
-  <TouchableOpacity
-    style={styles.shareButton}
-    onPress={handleSaveResult}
-    disabled={saving || saved}
-  >
-    <Text style={styles.shareButtonText}>
-      {saved ? 'Saved ✔' : saving ? 'Saving...' : 'Save result'}
-    </Text>
-  </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.shareButton}
+          onPress={handleSaveResult}
+          disabled={saving || saved}
+        >
+          <Text style={styles.shareButtonText}>
+            {saved ? 'Saved ✔' : saving ? 'Saving...' : 'Save result'}
+          </Text>
+        </TouchableOpacity>
 
-  <TouchableOpacity
-    style={styles.ghostButton}
-    onPress={() => router.push('/profile')}
-  >
-    <Text style={styles.ghostButtonText}>View profile</Text>
-  </TouchableOpacity>
-</View>
+        <TouchableOpacity style={styles.ghostButton} onPress={() => router.push('/profile')}>
+          <Text style={styles.ghostButtonText}>View profile</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -223,13 +267,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
   },
-  emotionalLine: {
+  compareText: {
     color: '#bda8ff',
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 16,
+    lineHeight: 22,
+    marginTop: 10,
+    marginBottom: 22,
     textAlign: 'center',
-    marginTop: 16,
-    marginBottom: 24,
+    fontWeight: '700',
   },
   segmentCard: {
     backgroundColor: '#1d162c',

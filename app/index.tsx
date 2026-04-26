@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ensureAnonymousSession, supabase } from '../lib/supabase';
 
 export default function OnboardingScreen() {
   const [selectedAge, setSelectedAge] = useState<string | null>(null);
@@ -8,6 +9,29 @@ export default function OnboardingScreen() {
 
   const ages = ['13–17', '18–24', '25–34', '35–44', '45+'];
   const genders = ['Woman', 'Man', 'Other'];
+
+  async function handleStart() {
+    const session = await ensureAnonymousSession();
+    const user = session?.user;
+
+    if (!user) {
+      Alert.alert('User error', 'Could not create your session.');
+      return;
+    }
+
+    const { error } = await supabase.from('user_profiles').upsert({
+      user_id: user.id,
+      age_range: selectedAge,
+      gender: selectedGender,
+    });
+
+    if (error) {
+      Alert.alert('Profile save failed', error.message);
+      return;
+    }
+
+    router.replace('/question');
+  }
 
   return (
     <View style={styles.container}>
@@ -62,7 +86,7 @@ export default function OnboardingScreen() {
           (!selectedAge || !selectedGender) && styles.primaryButtonDisabled,
         ]}
         disabled={!selectedAge || !selectedGender}
-        onPress={() => router.push('/question')}
+        onPress={handleStart}
       >
         <Text style={styles.primaryButtonText}>Start playing</Text>
       </TouchableOpacity>
